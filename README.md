@@ -1,2 +1,0 @@
-# Whatssap-bot
-Bot
