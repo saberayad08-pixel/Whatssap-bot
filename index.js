@@ -1,74 +1,115 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const { Telegraf } = require('telegraf');
-const http = require('http');
+const { Telegraf, Markup } = require('telegraf');
+const fs = require('fs');
+const path = require('path');
 
-const tgBot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-const waClients = new Map();
-const waitingForNumber = new Set();
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const OWNER_ID = 8933514774;
 
-function createWaClient(tgId, phoneNumber) {
-    const client = new Client({
-        authStrategy: new LocalAuth({ clientId: `mikey-${tgId}`, dataPath: '/app/.wwebjs_auth' }),
-        puppeteer: {
-            headless: true,
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-            args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--single-process']
-        }
-    });
-
-    client.on('ready', () => {
-        tgBot.telegram.sendMessage(tgId, '✅ تم الربط بنجاح! البوت خدام دابا في واتساب.');
-    });
-
-    client.initialize().then(async () => {
-        // نطلب كود الربط بعد 3 ثواني
-        setTimeout(async () => {
-            try {
-                const code = await client.requestPairingCode(phoneNumber);
-                await tgBot.telegram.sendMessage(tgId, `🔑 كود الربط ديالك:\n\n*${code}*\n\nسير لـ واتساب > الاعدادات > الاجهزة المرتبطة > ربط جهاز > ربط برقم الهاتف وكتب هاد الكود\n\nالكود صالح لـ 60 ثانية`, { parse_mode: 'Markdown' });
-            } catch (e) {
-                await tgBot.telegram.sendMessage(tgId, `❌ خطأ في طلب الكود: ${e.message}\nتأكد الرقم صحيح بالصيغة الدولية مثال: 212612345678`);
-            }
-        }, 3000);
-    });
-
-    waClients.set(tgId, client);
-    return client;
+if (!BOT_TOKEN) {
+  console.error('❌ BOT_TOKEN ما موجودش فـ Secrets');
+  process.exit(1);
 }
 
-tgBot.start((ctx) => {
-    ctx.reply('🍷 مرحبا في بوت مايكي\n\nدوس ربط باش نعطيك كود من 8 ارقام', {
-        reply_markup: { inline_keyboard: [[{ text: '🔗 ربط برقم الهاتف', callback_data: 'link' }]] }
-    });
+const bot = new Telegraf(BOT_TOKEN);
+
+const MENU = `
+╔═══ 🌿 MAIKI 🍷 ═══╗
+
+𓆩 𝑴𝑨𝑰𝑲𝑰 𝑽 𝑩𝑶𝑻 𓆪
+
+🍷 مرحباً بك في نظام MAIKI
+
+اختار واحد من الأزرار لتحت:
+
+╚═══ MAIKI 🍷 ═══╝
+`;
+
+const BUTTONS = Markup.inlineKeyboard([
+  [
+    Markup.button.callback('🍷 ربط البوت', 'connect'),
+  ],
+  [
+    Markup.button.callback('👑 الملك', 'king'),
+    Markup.button.callback('📖 المساعدة', 'help'),
+  ],
+  [
+    Markup.button.callback('📊 حالة البوت', 'status'),
+  ],
+]);
+
+bot.start(async (ctx) => {
+  await ctx.reply(MENU, BUTTONS);
 });
 
-tgBot.action('link', async (ctx) => {
-    await ctx.answerCbQuery();
-    waitingForNumber.add(ctx.chat.id);
-    await ctx.reply('📱 صيفط ليا رقم واتساب ديالك بالصيغة الدولية:\n\nمثال للمغرب: 212612345678\nمثال للجزائر: 2135xxxxxxxx\n\nما تكتبش + ولا 00، كتب غير الرقم');
+bot.action('connect', async (ctx) => {
+  await ctx.answerCbQuery();
+
+  await ctx.reply(
+    '🍷 MAIKI — ربط واتساب\n\n' +
+    'خاصية الربط ما زالت غير مفعلة.\n' +
+    'ما ترسلش كود التحقق أو معلومات الجلسة لأي شخص.'
+  );
 });
 
-tgBot.on('text', async (ctx) => {
-    const tgId = ctx.chat.id;
-    if (!waitingForNumber.has(tgId)) return;
-    
-    const num = ctx.message.text.replace(/[^0-9]/g, '');
-    if (num.length < 10) {
-        return ctx.reply('❌ الرقم قصير، عاود كتبو صحيح مثال: 212612345678');
-    }
-    
-    waitingForNumber.delete(tgId);
-    await ctx.reply(`⏳ كنطلب كود للرقم ${num}... تسنا 10 ثواني`);
-    
-    if (waClients.has(tgId)) {
-        try { await waClients.get(tgId).destroy(); } catch {}
-    }
-    createWaClient(tgId, num);
+bot.action('king', async (ctx) => {
+  await ctx.answerCbQuery();
+
+  const user = ctx.from;
+
+  if (user.id !== OWNER_ID) {
+    return ctx.reply('⛔ هاد المعلومات خاصة بالمالك.');
+  }
+
+  const caption =
+    '╔═══ 👑 MAIKI KING ═══╗\n\n' +
+    '🍷 الاسم: MAIKI\n' +
+    '👑 المالك: @' + (user.username || 'بدون_معرف') + '\n' +
+    '🆔 ID: ' + user.id + '\n\n' +
+    '╚═══ MAIKI 🍷 ═══╝';
+
+  const imagePath = path.join(__dirname, 'maiki.jpg');
+
+  if (fs.existsSync(imagePath)) {
+    await ctx.replyWithPhoto(
+      { source: imagePath },
+      { caption }
+    );
+  } else {
+    await ctx.reply(caption + '\n\n📷 صورة مايكي ما زالت ما ترفعاتش.');
+  }
 });
 
-tgBot.launch();
+bot.action('help', async (ctx) => {
+  await ctx.answerCbQuery();
 
-http.createServer((req, res) => {
-    res.writeHead(200);
-    res.end('Mikey Running with Pairing Code');
-}).listen(process.env.PORT || 10000, () => console.log('Server running'));
+  await ctx.reply(
+    '🍷 MAIKI — المساعدة\n\n' +
+    '/start — القائمة الرئيسية\n\n' +
+    '👑 الملك: معلومات المالك.\n' +
+    '🍷 ربط البوت: واجهة الربط.\n' +
+    '📊 حالة البوت: حالة الخدمة.'
+  );
+});
+
+bot.action('status', async (ctx) => {
+  await ctx.answerCbQuery();
+
+  await ctx.reply(
+    '🍷 MAIKI STATUS\n\n' +
+    '✅ بوت تيليغرام خدام.\n' +
+    '⚪ ربط واتساب: غير مفعّل.'
+  );
+});
+
+bot.catch((err) => {
+  console.error('MAIKI ERROR:', err);
+});
+
+bot.launch()
+  .then(() => console.log('🍷 MAIKI Telegram Bot is running!'))
+  .catch((err) => {
+    console.error('تعذر تشغيل البوت:', err.message);
+  });
+
+process.once('SIGINT', () => bot.stop('SIGINT'));
+process.once('SIGTERM', () => bot.stop('SIGTERM'));
